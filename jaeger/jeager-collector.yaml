@@ -1,0 +1,129 @@
+apiVersion: opentelemetry.io/v1beta1
+kind: OpenTelemetryCollector
+metadata:
+  name: jaeger-instance
+  namespace: jaeger
+spec:
+  image: jaegertracing/jaeger:2.5.0
+  replicas: 3
+  mode: statefulset
+  ports:
+  - name: jaeger
+    port: 16686
+  managementState: managed
+  volumeMounts:
+    - name: jaeger-ui-config
+      mountPath: /etc/jaeger/ui-config.json
+      subPath: ui-config.json
+  volumes:
+    - name: jaeger-ui-config
+      configMap:
+        name: jaeger-ui-config
+  config:
+    service:
+      extensions: [jaeger_storage, jaeger_query, healthcheckv2]
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [batch]
+          exporters: [jaeger_storage_exporter]
+      telemetry:
+        resource:
+          service.name: jaeger
+        metrics:
+          # https://github.com/open-telemetry/opentelemetry-operator/issues/3730
+          # address are deprecated
+          address: ""
+          level: detailed
+#          readers:
+#            - pull:
+#                exporter:
+#                  prometheus:
+#                    host: ""
+#                    port: 8888
+        logs:
+          level: debug
+        # TODO Initialize telemetry tracer once OTEL released new feature.
+        # https://github.com/open-telemetry/opentelemetry-collector/issues/10663
+    
+    extensions:
+#      healthcheckv2:
+#        use_v2: true
+#        http:
+#          endpoint:
+      healthcheckv2:
+        use_v2: true
+        component_health:
+          include_permanent_errors: false
+          include_recoverable_errors: true
+          recovery_duration: 5m
+        http:
+          endpoint: "localhost:13133"
+          status:
+            enabled: true
+            path: "/health/status"
+          config:
+            enabled: true
+            path: "/health/config"
+        grpc:
+          endpoint: "localhost:13132"
+          transport: "tcp"
+    
+      jaeger_query:
+        storage:
+          traces: some_storage
+          traces_archive: another_storage
+        ui:
+          config_file: /etc/jaeger/ui-config.json
+    
+      jaeger_storage:
+        backends:
+          some_storage:
+            cassandra:
+              schema: 
+                keyspace: "jaeger_v1_dc1"
+                create: "${env:CASSANDRA_CREATE_SCHEMA:-true}"
+              connection:
+                servers: ["cassandra-dc1-service.k8ssandra-operator"]
+                auth: 
+                  basic:
+                    username: "cassandra-superuser"
+                    password: "3PoOSTSmD1wnCamBlGaf"
+                tls:
+                  insecure: true
+          another_storage:
+            cassandra:
+              schema: 
+                keyspace: "jaeger_v1_dc1_archive"
+                create: "${env:CASSANDRA_CREATE_SCHEMA:-true}"
+              connection:
+                servers: ["cassandra-dc1-service.k8ssandra-operator"]
+                auth:
+                  basic: 
+                    username: "cassandra-superuser"
+                    password: "3PoOSTSmD1wnCamBlGaf"
+                tls:
+                  insecure: true
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint:
+          http:
+            endpoint:
+    
+#      jaeger:
+#        protocols:
+#          grpc:
+#          thrift_binary:
+#          thrift_compact:
+#          thrift_http:
+    
+    processors:
+      batch:
+        send_batch_size: 10000
+        timeout: 10s
+    
+    exporters:
+      jaeger_storage_exporter:
+        trace_storage: some_storage

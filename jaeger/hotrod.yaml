@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hotrod
+  namespace: jaeger
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hotrod
+  template:
+    metadata:
+      labels:
+        app: hotrod
+    spec:
+      containers:
+        - name: hotrod
+          image: jaegertracing/example-hotrod:latest
+          ports:
+            - containerPort: 8080  # HotRod UI port
+          env:
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://jaeger-instance-collector.jaeger:4318"  # OTLP HTTP endpoint
+            - name: OTEL_EXPORTER_OTLP_PROTOCOL
+              value: "http/protobuf"  # Use HTTP with Protobuf (matches your Collector)
+            - name: OTEL_SERVICE_NAME
+              value: "hotrod"  # Service name for traces
+            - name: OTEL_TRACES_SAMPLER
+              value: "always_on"  # Sample all traces
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hotrod
+  namespace: jaeger
+spec:
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http
+  selector:
+    app: hotrod
